@@ -1,0 +1,12 @@
+* text=auto
+*.py text eol=lf
+*.spec text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.lock text eol=lf
+*.bat text eol=crlf
+*.yml text eol=lf
+/LICENSE text eol=lf
+/COPYRIGHT text eol=lf
+LICENSES/** -text -diff

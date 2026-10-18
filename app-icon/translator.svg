@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 64 64" role="img" aria-labelledby="title description">
+  <title id="title">Murmur（译语） 应用图标</title>
+  <desc id="description">棕色圆形底板与暖白色双引号，四角透明。</desc>
+  <circle cx="32" cy="32" r="31" fill="#bd684b"/>
+  <g transform="translate(10 10) scale(1.8333333333)" fill="#fffdf8">
+    <path d="M5 5h6v7H5z M11 11c0 6-2 8-6 8v-3c2 0 3-1 3-4z"/>
+    <path d="M14 5h6v7h-6z M20 11c0 6-2 8-6 8v-3c2 0 3-1 3-4z"/>
+  </g>
+</svg>

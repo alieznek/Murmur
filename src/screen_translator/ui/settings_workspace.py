@@ -1,0 +1,310 @@
+"""Settings navigation and pages inside the shared window shell."""
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont
+from PySide6.QtWidgets import (
+    QCheckBox, QFormLayout, QFrame, QHBoxLayout, QLayout,
+    QPushButton, QScrollArea, QSlider, QStackedWidget, QToolButton, QVBoxLayout, QWidget,
+)
+from screen_translator.services.config import ConfigurationError, DEFAULT_APPEARANCE
+from screen_translator.services.providers import PROVIDERS
+from screen_translator.ui.chat import caption
+from screen_translator.ui.chrome import TitleBar, shell_for
+from screen_translator.ui.qt_controls import ThemedComboBox, FontCombo, decorate_button
+from screen_translator.ui.translation_workspace import divider
+
+
+def page(title, description):
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QFrame.Shape.NoFrame)
+    content = QWidget()
+    content.setMinimumSize(1, 1)
+    layout = QVBoxLayout(content)
+    layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+    layout.setContentsMargins(29, 24, 29, 24)
+    layout.setSpacing(15)
+    layout.addWidget(caption(title, "pageTitle"))
+    detail = caption(description, "muted")
+    detail.setWordWrap(True)
+    layout.addWidget(detail)
+    scroll.setWidget(content)
+    return scroll, layout
+
+
+def card(layout):
+    frame = QFrame()
+    frame.setObjectName("settingsCard")
+    rows = QVBoxLayout(frame)
+    rows.setContentsMargins(18, 8, 18, 8)
+    rows.setSpacing(0)
+    layout.addWidget(frame)
+    return rows
+
+
+def row(layout, label, description, control):
+    if layout.count():
+        layout.addWidget(divider())
+    widget = QWidget()
+    columns = QHBoxLayout(widget)
+    columns.setContentsMargins(0, 13, 0, 13)
+    columns.setSpacing(14)
+    text = QWidget()
+    labels = QVBoxLayout(text)
+    labels.setContentsMargins(0, 0, 0, 0)
+    labels.setSpacing(5)
+    labels.addWidget(caption(label))
+    detail = caption(description, "small")
+    detail.setWordWrap(True)
+    detail.setMinimumWidth(1)
+    labels.addWidget(detail)
+    columns.addWidget(text, 1)
+    control.setMaximumWidth(165)
+    columns.addWidget(control)
+    layout.addWidget(widget)
+
+
+def build_settings_workspace(dialog):
+    shell = shell_for(dialog)
+    outer = QVBoxLayout(dialog)
+    outer.setContentsMargins(0, 0, 0, 0)
+    outer.addWidget(shell)
+    dialog.surface = shell.face
+    root = QVBoxLayout(dialog.surface)
+    root.setContentsMargins(0, 0, 0, 0)
+    root.setSpacing(0)
+    bar = TitleBar(dialog)
+    bar.setFixedHeight(59)
+    title = QHBoxLayout(bar)
+    title.setContentsMargins(23, 11, 20, 11)
+    title.addWidget(caption("设置", "brand"), 1)
+    close = QToolButton()
+    decorate_button(close, "close", "关闭设置", ghost=True, icon_only=True)
+    close.clicked.connect(dialog.reject)
+    title.addWidget(close)
+    root.addWidget(bar)
+    root.addWidget(divider())
+    body = QHBoxLayout()
+    body.setSpacing(0)
+    body.setContentsMargins(1, 0, 1, 0)
+    dialog.navigation = QWidget()
+    dialog.navigation.setObjectName("settingsNav")
+    dialog.navigation.setFixedWidth(190)
+    navigation = QVBoxLayout(dialog.navigation)
+    navigation.setContentsMargins(13, 22, 13, 19)
+    navigation.setSpacing(5)
+    navigation.addWidget(caption("偏好设置"))
+    dialog.nav_buttons = {}
+    for key, text, glyph in (("general", "常规", "settings"), ("fonts", "字体与外观", "font"),
+                             ("platforms", "平台与模型", "plug"), ("ocr", "截图识字", "capture")):
+        button = QPushButton(text)
+        button.setObjectName("navItem")
+        button.setCheckable(True)
+        decorate_button(button, glyph, text)
+        button.clicked.connect(lambda _=False, key=key: dialog.select_page(key))
+        dialog.nav_buttons[key] = button
+        navigation.addWidget(button)
+    navigation.addStretch(1)
+    signature = caption("murmur.", "wordmark")
+    signature.setStyleSheet("font-family:Georgia;font-size:19px;font-style:italic;")
+    navigation.addWidget(signature)
+    navigation.addWidget(caption("译语 · 本地翻译工作区"))
+    body.addWidget(dialog.navigation)
+    dialog.pages = QStackedWidget()
+    dialog.pages.setMinimumSize(1, 1)
+    dialog.page_indices = {}
+    body.addWidget(dialog.pages, 1)
+    root.addLayout(body, 1)
+    try:
+        prefs = dialog.store.appearance
+        side = dialog.store.dock_side
+    except ConfigurationError:
+        prefs, side = dict(DEFAULT_APPEARANCE), "right"
+    dialog.font_controls = {}
+    dialog.size_controls = {}
+    dialog.size_values = {}
+
+    general, layout = page("常规", "设置小窗的外观、侧边停靠位置和本地记录。")
+    rows = card(layout)
+    dialog.theme_setting = ThemedComboBox()
+    dialog.theme_setting.setAccessibleName("界面主题")
+    dialog.theme_setting.addItem("浅色", "light")
+    dialog.theme_setting.addItem("深色", "dark")
+    dialog.theme_setting.setCurrentIndex(dialog.theme_setting.findData(prefs["theme"]))
+    dialog.theme_setting.currentIndexChanged.connect(lambda: dialog.save_appearance("theme", dialog.theme_setting.currentData()))
+    row(rows, "主题", "选择适合当前环境的外观。", dialog.theme_setting)
+    dialog.dock_combo = ThemedComboBox()
+    dialog.dock_combo.setAccessibleName("边缘停靠位置")
+    dialog.dock_combo.addItem("右侧", "right")
+    dialog.dock_combo.addItem("左侧", "left")
+    dialog.dock_combo.setCurrentIndex(dialog.dock_combo.findData(side))
+    dialog.dock_combo.currentIndexChanged.connect(dialog._save_dock_side)
+    row(rows, "浮动图标", "按住拖动，双击打开。选择侧边可重置位置。", dialog.dock_combo)
+    pinned = QCheckBox("保持置顶")
+    pinned.setChecked(True if dialog.parent() is None else dialog.parent().pin_button.isChecked())
+    if dialog.parent() is not None:
+        pinned.toggled.connect(dialog.parent()._set_pin)
+    row(rows, "窗口层级", "需要时，让翻译小窗留在前面。", pinned)
+    rows = card(layout)
+    local = caption("已开启")
+    row(rows, "本地历史", "原文、译文和截图缩略图只保存到本机。", local)
+    export = QPushButton("导出 JSON")
+    export.setProperty("variant", "outline")
+    if dialog.parent() is not None:
+        export.clicked.connect(dialog.parent().export_history)
+    row(rows, "导出记录", "将翻译历史另存一份。", export)
+    rows = card(layout)
+    dialog.open_config_button = QPushButton("打开配置目录")
+    dialog.open_config_button.setProperty("variant", "outline")
+    dialog.open_config_button.clicked.connect(dialog.open_config_directory)
+    row(rows, "配置目录", str(dialog.store.path.absolute().parent), dialog.open_config_button)
+    note = caption("设置与聊天记录保存在此目录。平台密钥可在“平台与模型”中查看和修改。", "muted")
+    note.setWordWrap(True)
+    layout.addWidget(note)
+    layout.addStretch(1)
+    dialog.page_indices["general"] = dialog.pages.addWidget(general)
+
+    fonts, layout = page("字体与外观", "让原文和译文，以你习惯的方式呈现。")
+    restore = QPushButton("恢复默认")
+    restore.setProperty("variant", "outline")
+    restore.clicked.connect(dialog.reset_fonts)
+    layout.addWidget(restore, 0, Qt.AlignmentFlag.AlignRight)
+    layout.addWidget(caption("字体"))
+    rows = card(layout)
+    for key, text, detail in (("ui_font", "界面字体", "按钮、菜单和历史记录的字体。"),
+                              ("source_font", "原文字体", "输入区与原文消息的字体。"),
+                              ("result_font", "译文字体", "翻译结果的字体。")):
+        combo = FontCombo()
+        combo.setAccessibleName(text)
+        combo.setMinimumWidth(1)
+        combo.setCurrentFont(QFont(prefs[key]))
+        combo.currentFontChanged.connect(lambda font, key=key: dialog.save_appearance(key, font.family()))
+        dialog.font_controls[key] = combo
+        row(rows, text, detail, combo)
+    layout.addWidget(caption("阅读"))
+    rows = card(layout)
+    for key, text, detail, lower, upper in (("source_size", "原文字号", "输入区与原文消息的文字大小。", 11, 24),
+                                           ("result_size", "译文字号", "翻译结果的文字大小。", 16, 38),
+                                           ("line_height", "行间距", "调整原文和译文的阅读密度。", 13, 22)):
+        control = QWidget()
+        sizing = QHBoxLayout(control)
+        sizing.setContentsMargins(0, 0, 0, 0)
+        sizing.setSpacing(7)
+        slider = QSlider(Qt.Orientation.Horizontal)
+        slider.setAccessibleName(text)
+        slider.setRange(lower, upper)
+        slider.setMinimumWidth(1)
+        slider.setValue(round(prefs[key] * 10) if key == "line_height" else prefs[key])
+        value = caption(str(prefs[key]) + ("" if key == "line_height" else " px"))
+        value.setMinimumWidth(41)
+        sizing.addWidget(slider, 1)
+        sizing.addWidget(value)
+        dialog.size_controls[key], dialog.size_values[key] = slider, value
+        slider.valueChanged.connect(lambda number, key=key: dialog.save_appearance(key, number / 10 if key == "line_height" else number))
+        row(rows, text, detail, control)
+    preview = QFrame()
+    preview.setObjectName("fontPreview")
+    dialog.preview_layout = QVBoxLayout(preview)
+    dialog.preview_layout.setContentsMargins(17, 15, 17, 15)
+    dialog.preview_layout.addWidget(caption("实时预览"))
+    layout.addWidget(preview)
+    layout.addWidget(caption("修改立即生效，并保存到本地。", "muted"))
+    dialog.page_indices["fonts"] = dialog.pages.addWidget(fonts)
+
+    dialog.content_scroll, layout = page("平台与模型", "配置翻译来源，在输入区随时切换。")
+    dialog.current_label = caption("")
+    dialog.current_label.setWordWrap(True)
+    layout.addWidget(dialog.current_label)
+    dialog.provider_combo = ThemedComboBox()
+    dialog.provider_combo.setAccessibleName("翻译平台")
+    for provider in PROVIDERS.values():
+        dialog.provider_combo.addItem(provider.name, provider.id)
+    row_layout = QHBoxLayout()
+    row_layout.addWidget(caption("服务平台"), 1)
+    row_layout.addWidget(dialog.provider_combo, 2)
+    layout.addLayout(row_layout)
+    rows = card(layout)
+    dialog.form_widget = QWidget()
+    dialog.form = QFormLayout(dialog.form_widget)
+    dialog.form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+    dialog.form.setContentsMargins(0, 10, 0, 10)
+    dialog.form.setVerticalSpacing(9)
+    dialog.form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    rows.addWidget(dialog.form_widget)
+    dialog.reveal = QCheckBox("显示凭据")
+    dialog.reveal.toggled.connect(dialog._toggle_secrets)
+    layout.addWidget(dialog.reveal)
+    help_panel = QWidget()
+    help_layout = QVBoxLayout(help_panel)
+    help_layout.setContentsMargins(0, 0, 0, 0)
+    dialog.provider_note = caption("", "muted")
+    dialog.provider_note.setWordWrap(True)
+    help_layout.addWidget(dialog.provider_note)
+    links = QHBoxLayout()
+    for text, attr in (("官方申请说明", "guide_url"), ("额度与账单", "console_url")):
+        button = QPushButton(text)
+        button.clicked.connect(lambda _=False, attr=attr: dialog.open_provider_link(attr))
+        links.addWidget(button)
+    links.addStretch()
+    help_layout.addLayout(links)
+    dialog.help_toggle = QToolButton()
+    dialog.help_toggle.setText("申请说明与调用限制")
+    dialog.help_toggle.setCheckable(True)
+    dialog.help_toggle.toggled.connect(help_panel.setVisible)
+    layout.addWidget(dialog.help_toggle)
+    layout.addWidget(help_panel)
+    help_panel.hide()
+    advanced = QWidget()
+    advanced_layout = QVBoxLayout(advanced)
+    advanced_layout.setContentsMargins(0, 0, 0, 0)
+    dialog.clear_button = QPushButton("清除当前平台凭据")
+    dialog.clear_button.clicked.connect(dialog.clear)
+    advanced_layout.addWidget(dialog.clear_button)
+    dialog.config_location = caption("配置保存在本地，密钥保存在系统凭据存储。", "muted")
+    dialog.config_location.setWordWrap(True)
+    advanced_layout.addWidget(dialog.config_location)
+    dialog.advanced_toggle = QToolButton()
+    dialog.advanced_toggle.setText("凭据管理")
+    dialog.advanced_toggle.setCheckable(True)
+    dialog.advanced_toggle.toggled.connect(advanced.setVisible)
+    layout.addWidget(dialog.advanced_toggle)
+    layout.addWidget(advanced)
+    advanced.hide()
+    layout.addStretch(1)
+    dialog.page_indices["platforms"] = dialog.pages.addWidget(dialog.content_scroll)
+
+    ocr, layout = page("截图识字", "查看本地识别引擎、语言和截图快捷键。")
+    rows = card(layout)
+    row(rows, "识别引擎", "文字识别在本机完成，无需上传截图。", caption("RapidOCR"))
+    row(rows, "识别语言", "当前本地模型自动识别中英文。", caption("中文 + 英语"))
+    row(rows, "粘贴图片", "在输入区粘贴剪贴板里的截图。", caption("Ctrl + V"))
+    row(rows, "截图快捷键", "框选鼠标所在显示器的文字区域。", caption("Ctrl + Alt + S"))
+    note = caption("识别完成后可以编辑文字，再放入翻译输入框。截图原图只保留在当前会话，历史仅保存缩略图。", "muted")
+    note.setWordWrap(True)
+    layout.addWidget(note)
+    layout.addStretch(1)
+    dialog.page_indices["ocr"] = dialog.pages.addWidget(ocr)
+    root.addWidget(divider())
+    dialog.feedback = caption("", "muted")
+    dialog.feedback.setWordWrap(True)
+    dialog.feedback.setAccessibleName("设置操作结果")
+    dialog.feedback.setContentsMargins(23, 6, 23, 0)
+    root.addWidget(dialog.feedback)
+    dialog.platform_actions = QWidget()
+    actions = QHBoxLayout(dialog.platform_actions)
+    actions.setContentsMargins(23, 9, 23, 16)
+    actions.setSpacing(8)
+    note = caption('连接验证只发送 "Hello."，按平台规则计费。')
+    note.setWordWrap(True)
+    actions.addWidget(note, 1)
+    for attribute, text, callback in (("verify_button", "验证连接", dialog.verify),
+                                     ("activate_button", "设为当前平台", dialog.activate),
+                                     ("save_button", "保存配置", dialog.save)):
+        button = QPushButton(text)
+        if attribute == "save_button":
+            button.setObjectName("primary")
+        button.clicked.connect(callback)
+        setattr(dialog, attribute, button)
+        actions.addWidget(button)
+    root.addWidget(dialog.platform_actions)
+    dialog.provider_combo.currentIndexChanged.connect(dialog._load_provider)
+    dialog.select_page("fonts")

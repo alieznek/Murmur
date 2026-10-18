@@ -1,0 +1,13 @@
+.venv/
+.agents/
+.env
+models/*
+!models/README.md
+.cache/
+build/
+dist/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+AGENTS.md
